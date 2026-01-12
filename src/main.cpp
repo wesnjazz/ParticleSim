@@ -1,8 +1,9 @@
 #include <iostream>
 #include <cstdlib>
-#include <vector>   // [UPDATE] Added standard container library
+#include <vector>
 #include <opencv2/opencv.hpp>
-#include <chrono> // Standard for measuring time (C++11)
+#include <chrono>
+#include <span> // [UPDATE] Required for C++20 std::span
 
 // [PERFORMANCE] Array of Structures (AOS) Pattern
 // For 5,000 particles, this is okay. For 100,000+, accessing x, then y, then vx
@@ -13,18 +14,17 @@ struct Particle {
     float vx, vy;
 };
 
-// [UPDATE] Function Signature Change
-// Old: void update_particles(Particle* data, int count, float dt)
-// New: We pass std::vector by Reference (&).
-// Why Reference? If we passed by value "vector<Particle> data", C++ would COPY
-// all 5,000 particles every frame. '&' lets us modify the original memory.
-// Why Safe? The vector carries its own size(). We can't accidentally read past the end.
-// [WARNING] This is "Stiff": This function now REFUSES to accept raw arrays.
-void update_particles(std::vector<Particle>& data, float dt) {
-    // [UPDATE] Range-Based For Loop (C++11 Feature)
-    // Instead of: for(int i=0; i < count; ++i)
-    // We say: "For every particle 'p' in 'data'..."
-    // This makes "Off-by-one" index errors impossible.
+// [UPDATE] C++20 Interface Change
+// Old: void update_particles(std::vector<Particle>& data, float dt)
+// New: We use std::span<Particle>.
+// Why?
+// 1. Flexibility: This function now accepts vectors, raw arrays, or sub-slices.
+// 2. Efficiency: It is "Zero-Copy." It views the memory where it lives.
+// 3. Safety: It still knows .size() and prevents out-of-bounds access.
+// Note: We pass span by VALUE (it's small), not reference.
+void update_particles(std::span<Particle> data, float dt) {
+    // [UPDATE] Range-Based Loop
+    // Works exactly the same! 'span' supports .begin() and .end().
     for (auto& p : data) {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
@@ -38,14 +38,9 @@ int main()
 {
     const int NUM_PARTICLES = 5000;
 
-    // [UPDATE] RAII Allocation
-    // Old: Particle* particles = new Particle[NUM_PARTICLES];
-    // New: The constructor allocates memory on the Heap immediately.
-    // Benefit: If main() crashes or returns early, this memory is auto-freed.
+    // We still use vector to OWN the memory (RAII)
     std::vector<Particle> particles(NUM_PARTICLES);
 
-    // [UPDATE] Initialization Loop
-    // We use the range-based loop here too for consistency.
     for (auto& p : particles) {
         // [PERFORMANCE] Slow Random Number Generator
         // 'rand()' is notoriously slow and low-quality.
@@ -66,9 +61,14 @@ int main()
         auto start_time = std::chrono::high_resolution_clock::now();
 
         // [UPDATE] Calling the function
-        // Old: update_particles(particles, NUM_PARTICLES, 0.1f);
-        // New: We just pass the object. No need to pass the size manually.
+        // The compiler automatically converts the 'std::vector' into a 'std::span'.
+        // No syntax change needed here!
         update_particles(particles, 0.1f);
+
+        // [DEMO] Proof of Flexibility (Try this!)
+        // If we wanted to update only the FIRST half of particles:
+        // update_particles({particles.data(), NUM_PARTICLES/2}, 0.1f);
+        // This would have been impossible/ugly in C++11.
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -103,11 +103,7 @@ int main()
         if (cv::waitKey(16) == 27) break;   // 27 is ESC
     }
 
-    // [UPDATE] No Delete
-    // Old: delete[] particles;
-    // New: (Removed). The vector destructor is called automatically here.
-
-    std::cout << "Simulation finished. Memory cleaned up." << std::endl;
+    std::cout << "Simulation finished." << std::endl;
 
     return 0;
 }
