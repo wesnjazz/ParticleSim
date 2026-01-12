@@ -60,15 +60,21 @@ int main()
     while (true) {
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        // [UPDATE] Calling the function
-        // The compiler automatically converts the 'std::vector' into a 'std::span'.
-        // No syntax change needed here!
-        update_particles(particles, 0.1f);
-
         // [DEMO] Proof of Flexibility (Try this!)
         // If we wanted to update only the FIRST half of particles:
         // update_particles({particles.data(), NUM_PARTICLES/2}, 0.1f);
         // This would have been impossible/ugly in C++11.
+        
+        // EXPERIMENT: Update ONLY the first 2500 particles.
+        // C++11 (Vector): IMPOSSIBLE without copying data.
+        // C++20 (Span): TRIVIAL. We just slice it.
+        std::span<Particle> first_half(particles.data(), NUM_PARTICLES / 2);
+
+        // [UPDATE] Calling the function
+        // The compiler automatically converts the 'std::vector' into a 'std::span'.
+        // No syntax change needed here!
+        update_particles(first_half, 0.1f);
+
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
