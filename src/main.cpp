@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdlib>
+#include <vector>   // [UPDATE] Added standard container library
 #include <opencv2/opencv.hpp>
 #include <chrono> // Standard for measuring time (C++11)
 
@@ -12,17 +13,24 @@ struct Particle {
     float vx, vy;
 };
 
-// [SAFETY] Buffer Overflow Risk
-// There is no guarantee that 'data' actually has 'count' elements.
-// If I accidentally pass count = 5001, this function will overwrite memory
-// belonging to other variables, leading to a crash or security exploit.
-void update_particles(Particle* data, int count, float dt) {
-    for (int i = 0; i < count; ++i) {
-        data[i].x += data[i].vx * dt;
-        data[i].y += data[i].vy * dt;
+// [UPDATE] Function Signature Change
+// Old: void update_particles(Particle* data, int count, float dt)
+// New: We pass std::vector by Reference (&).
+// Why Reference? If we passed by value "vector<Particle> data", C++ would COPY
+// all 5,000 particles every frame. '&' lets us modify the original memory.
+// Why Safe? The vector carries its own size(). We can't accidentally read past the end.
+// [WARNING] This is "Stiff": This function now REFUSES to accept raw arrays.
+void update_particles(std::vector<Particle>& data, float dt) {
+    // [UPDATE] Range-Based For Loop (C++11 Feature)
+    // Instead of: for(int i=0; i < count; ++i)
+    // We say: "For every particle 'p' in 'data'..."
+    // This makes "Off-by-one" index errors impossible.
+    for (auto& p : data) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
 
-        if (data[i].x < 0 || data[i].x > 500) data[i].vx *= -1;
-        if (data[i].y < 0 || data[i].y > 500) data[i].vy *= -1;
+        if (p.x < 0 || p.x > 500) p.vx *= -1;
+        if (p.y < 0 || p.y > 500) p.vy *= -1;
     }
 }
 
@@ -30,25 +38,26 @@ int main()
 {
     const int NUM_PARTICLES = 5000;
 
-    // [SAFETY] Memory Leak Risk (The "Naked New")
-    // We are manually asking the OS for memory. C++ does not track this for us.
-    // If we throw an exception or return before line "delete", this memory is lost forever (Leak).
-    Particle* particles = new Particle[NUM_PARTICLES];
+    // [UPDATE] RAII Allocation
+    // Old: Particle* particles = new Particle[NUM_PARTICLES];
+    // New: The constructor allocates memory on the Heap immediately.
+    // Benefit: If main() crashes or returns early, this memory is auto-freed.
+    std::vector<Particle> particles(NUM_PARTICLES);
 
-    for (int i = 0; i < NUM_PARTICLES; ++i) {
+    // [UPDATE] Initialization Loop
+    // We use the range-based loop here too for consistency.
+    for (auto& p : particles) {
         // [PERFORMANCE] Slow Random Number Generator
         // 'rand()' is notoriously slow and low-quality.
         // It uses a global lock which kills performance in multithreaded apps.
-        particles[i].x = rand() % 500;
-        particles[i].y = rand() % 500;
-        particles[i].vx = (rand() % 10 - 5) * 5.0f; // Random velocity -5 to 5
-        particles[i].vy = (rand() % 10 - 5) * 5.0f; // Random velocity -5 to 5
+        p.x = rand() % 500;
+        p.y = rand() % 500;
+        p.vx = (rand() % 10 - 5) * 5.0f; // Random velocity -5 to 5
+        p.vy = (rand() % 10 - 5) * 5.0f; // Random velocity -5 to 5
     }
 
-    // --- METRICS VARIABLES ---
     long long total_latency_us = 0;
     long long frame_count = 0;
-    // -------------------------
 
     std::cout << "Starting Legacy Simulation (C++ 98 Style)..." << std::endl;
     std::cout << "Press ESC to quit." << std::endl;
@@ -56,10 +65,10 @@ int main()
     while (true) {
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        // [SAFETY] Disconnected Size
-        // We have to manually ensure 'NUM_PARTICLES' matches the array size.
-        // If we changed the array allocation above but forgot to change this constant, crash!
-        update_particles(particles, NUM_PARTICLES, 0.1f);
+        // [UPDATE] Calling the function
+        // Old: update_particles(particles, NUM_PARTICLES, 0.1f);
+        // New: We just pass the object. No need to pass the size manually.
+        update_particles(particles, 0.1f);
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -69,9 +78,9 @@ int main()
         frame_count++;
         double average_latency = (double)total_latency_us / frame_count;
 
-        // [PERFORMANCE] Unnecessary Allocation
-        // 'cv::Mat::zeros' allocates NEW memory on the heap every single frame (60 times a second).
-        // It is better to create 'cv::Mat frame' ONCE outside the loop and just use 'frame.setTo(0)'.
+        // Visualization
+        // [PERFORMANCE TIP] We moved the allocation outside the loop in the next step,
+        // but for now, we keep it here to match the legacy structure.
         cv::Mat frame = cv::Mat::zeros(500, 500, CV_8UC3);
 
         for (int i = 0; i < NUM_PARTICLES; ++i) {
@@ -94,10 +103,9 @@ int main()
         if (cv::waitKey(16) == 27) break;   // 27 is ESC
     }
 
-    // [SAFETY] Dangling Pointer Risk
-    // After this line, 'particles' still holds the address, but the memory is gone.
-    // If someone tries to access 'particles[0]' after this line, the program enters Undefined Behavior.
-    delete[] particles;
+    // [UPDATE] No Delete
+    // Old: delete[] particles;
+    // New: (Removed). The vector destructor is called automatically here.
 
     std::cout << "Simulation finished. Memory cleaned up." << std::endl;
 
